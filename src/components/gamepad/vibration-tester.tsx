@@ -5,12 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import type { GamepadInfo } from '@/hooks/useGamepad';
 import { Vibrate, Zap } from 'lucide-react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 interface VibrationTesterProps {
-  gamepad: GamepadInfo;
+  gamepadIndex: number;
   triggerVibration: (
     gamepadIndex: number,
     duration: number,
@@ -19,16 +18,42 @@ interface VibrationTesterProps {
   ) => boolean;
 }
 
-export function VibrationTester({ gamepad, triggerVibration }: VibrationTesterProps) {
+export function VibrationTester({ gamepadIndex, triggerVibration }: VibrationTesterProps) {
   const [enabled, setEnabled] = useState(false);
   const [duration, setDuration] = useState(200);
   const [strongMagnitude, setStrongMagnitude] = useState(1.0);
   const [weakMagnitude, setWeakMagnitude] = useState(0.5);
   const [lastResult, setLastResult] = useState<'success' | 'fail' | null>(null);
+  const [hasVibration, setHasVibration] = useState<boolean | null>(null);
+  const [actuatorType, setActuatorType] = useState<string>('');
+
+  // Check vibration capability directly from the live Gamepad API
+  useEffect(() => {
+    const check = () => {
+      const rawGamepads = navigator.getGamepads();
+      let gp: Gamepad | null = null;
+      for (let i = 0; i < rawGamepads.length; i++) {
+        if (rawGamepads[i] && rawGamepads[i]!.index === gamepadIndex) {
+          gp = rawGamepads[i]!;
+          break;
+        }
+      }
+      if (gp) {
+        setHasVibration(!!gp.vibrationActuator);
+        setActuatorType(gp.vibrationActuator?.type || '');
+      } else {
+        setHasVibration(false);
+      }
+    };
+
+    check();
+    const interval = setInterval(check, 1000);
+    return () => clearInterval(interval);
+  }, [gamepadIndex]);
 
   const handleTest = useCallback(() => {
     const result = triggerVibration(
-      gamepad.index,
+      gamepadIndex,
       duration,
       strongMagnitude,
       weakMagnitude
@@ -37,9 +62,26 @@ export function VibrationTester({ gamepad, triggerVibration }: VibrationTesterPr
     if (result) {
       setTimeout(() => setLastResult(null), duration + 200);
     }
-  }, [gamepad.index, duration, strongMagnitude, weakMagnitude, triggerVibration]);
+  }, [gamepadIndex, duration, strongMagnitude, weakMagnitude, triggerVibration]);
 
-  if (!gamepad.hasVibration) {
+  // Still checking
+  if (hasVibration === null) {
+    return (
+      <Card className="border-border/50">
+        <CardHeader className="pb-3 pt-4 px-4">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Vibrate className="h-4 w-4 text-muted-foreground" />
+            Vibration / Haptics
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <p className="text-sm text-muted-foreground">Checking vibration support...</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!hasVibration) {
     return (
       <Card className="border-border/50">
         <CardHeader className="pb-3 pt-4 px-4">
@@ -64,9 +106,9 @@ export function VibrationTester({ gamepad, triggerVibration }: VibrationTesterPr
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <Vibrate className="h-4 w-4 text-primary" />
           Vibration / Haptics
-          {gamepad.vibrationActuatorType && (
+          {actuatorType && (
             <span className="text-xs font-normal text-muted-foreground ml-1">
-              ({gamepad.vibrationActuatorType})
+              ({actuatorType})
             </span>
           )}
         </CardTitle>
@@ -154,6 +196,14 @@ export function VibrationTester({ gamepad, triggerVibration }: VibrationTesterPr
               {lastResult === 'fail' && (
                 <p className="text-xs text-destructive">
                   Vibration failed. Your browser or controller may not support the dual-rumble effect.
+                  Try clicking the button again while the page has focus.
+                </p>
+              )}
+
+              {lastResult === 'success' && (
+                <p className="text-xs text-green-600">
+                  Vibration command sent successfully. If you didn&apos;t feel anything, check
+                  that the controller is not muted and your OS permits browser haptics.
                 </p>
               )}
 

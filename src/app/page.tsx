@@ -5,7 +5,6 @@ import { GamepadMetadataPanel } from '@/components/gamepad/gamepad-metadata-pane
 import { AxisTester } from '@/components/gamepad/axis-tester';
 import { AnalogStickVisualization } from '@/components/gamepad/analog-stick-visualization';
 import { ButtonTester } from '@/components/gamepad/button-tester';
-import { StandardControllerLayout } from '@/components/gamepad/standard-controller-layout';
 import { VibrationTester } from '@/components/gamepad/vibration-tester';
 import { CircularityTest } from '@/components/gamepad/circularity-test';
 import { FaqSection } from '@/components/gamepad/faq-section';
@@ -303,15 +302,11 @@ function GamepadPanel({
     { id: 'overview', label: 'Overview', icon: <Activity className="h-3.5 w-3.5" /> },
     { id: 'axes', label: 'Axes', icon: <Activity className="h-3.5 w-3.5" /> },
     { id: 'buttons', label: 'Buttons', icon: <MousePointerClick className="h-3.5 w-3.5" /> },
-    { id: 'layout', label: 'Layout', icon: <Gamepad2 className="h-3.5 w-3.5" /> },
     { id: 'vibration', label: 'Vibration', icon: <Vibrate className="h-3.5 w-3.5" /> },
     { id: 'circularity', label: 'Circularity', icon: <Circle className="h-3.5 w-3.5" /> },
   ];
 
-  // Hide layout tab for non-standard controllers
-  const visibleTabs = tabs.filter(
-    (t) => !(t.id === 'layout' && gamepad.mapping !== 'standard')
-  );
+  const visibleTabs = tabs;
 
   return (
     <div className="mb-8">
@@ -362,13 +357,9 @@ function GamepadPanel({
           <ButtonTester gamepad={gamepad} />
         )}
 
-        {activeTab === 'layout' && gamepad.mapping === 'standard' && (
-          <StandardControllerLayout gamepad={gamepad} />
-        )}
-
         {activeTab === 'vibration' && (
           <VibrationTester
-            gamepad={gamepad}
+            gamepadIndex={gamepad.index}
             triggerVibration={triggerVibration}
           />
         )}

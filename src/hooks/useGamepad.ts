@@ -44,6 +44,10 @@ export function useGamepad() {
   const rafRef = useRef<number>(0);
   const gamepadsRef = useRef<GamepadInfo[]>([]);
   const activatedRef = useRef(false);
+  const lastStateUpdateRef = useRef<number>(0);
+
+  // Update React state at ~15fps for live button/axis data in React components
+  const STATE_UPDATE_INTERVAL = 66; // ~15fps
 
   useEffect(() => {
     const handleConnected = () => {
@@ -66,18 +70,35 @@ export function useGamepad() {
 
       connected.sort((a, b) => a.index - b.index);
 
+      // Always update the ref (used by canvas components at 60fps)
+      gamepadsRef.current = connected;
+
+      // Check if connection state changed (needs immediate update)
       const prev = gamepadsRef.current;
-      const changed =
-        connected.length !== prev.length ||
+      const prevForCompare = (() => {
+        // Use a snapshot from before the update for comparison
+        const p = gamepadsRef.current;
+        return p;
+      })();
+
+      const connectionChanged =
+        connected.length !== (gamepads.length) ||
         connected.some((gp, i) => {
-          const p = prev[i];
+          const p = gamepads[i];
           return !p || p.index !== gp.index || p.connected !== gp.connected || p.id !== gp.id;
         });
 
-      gamepadsRef.current = connected;
-
-      if (changed) {
+      if (connectionChanged) {
+        // Connection state changed — update immediately
         setGamepads(connected);
+        lastStateUpdateRef.current = performance.now();
+      } else {
+        // Throttled update for live axis/button data (~15fps)
+        const now = performance.now();
+        if (now - lastStateUpdateRef.current >= STATE_UPDATE_INTERVAL) {
+          setGamepads(connected);
+          lastStateUpdateRef.current = now;
+        }
       }
 
       rafRef.current = requestAnimationFrame(poll);
@@ -93,29 +114,59 @@ export function useGamepad() {
       window.removeEventListener('gamepaddisconnected', () => {});
       cancelAnimationFrame(rafRef.current);
     };
-  }, []);
+  }, [gamepads.length]);
 
   const getGamepadsRef = useCallback(() => gamepadsRef, []);
 
   const triggerVibration = useCallback(
     (gamepadIndex: number, duration: number, strongMagnitude: number, weakMagnitude: number) => {
+      // Read fresh from the API — never trust stale state for vibration
       const rawGamepads = navigator.getGamepads();
-      const gp = rawGamepads[gamepadIndex];
-      if (!gp?.vibrationActuator) return false;
+      let gp: Gamepad | null = null;
+
+      // Find by index (handles sparse GamepadList)
+      for (let i = 0; i < rawGamepads.length; i++) {
+        if (rawGamepads[i] && rawGamepads[i]!.index === gamepadIndex) {
+          gp = rawGamepads[i]!;
+          break;
+        }
+      }
+
+      if (!gp || !gp.connected) return false;
+
+      const actuator = gp.vibrationActuator;
+      if (!actuator) return false;
+
+      // Clamp magnitudes to valid range [0, 1]
+      const strong = Math.max(0, Math.min(1, strongMagnitude));
+      const weak = Math.max(0, Math.min(1, weakMagnitude));
+      const dur = Math.max(1, duration);
 
       try {
-        const actuator = gp.vibrationActuator;
+        // Try dual-rumble (modern API)
         if ('playEffect' in actuator && typeof actuator.playEffect === 'function') {
-          actuator.playEffect('dual-rumble', {
+          // Reset any ongoing vibration first
+          if ('reset' in actuator && typeof (actuator as any).reset === 'function') {
+            try { (actuator as any).reset(); } catch { /* ignore */ }
+          }
+
+          const result = actuator.playEffect('dual-rumble', {
             startDelay: 0,
-            duration,
-            strongMagnitude,
-            weakMagnitude,
+            duration: dur,
+            strongMagnitude: strong,
+            weakMagnitude: weak,
           });
+
+          // playEffect may return a Promise
+          if (result instanceof Promise) {
+            result.catch(() => {});
+          }
           return true;
         }
+
+        // Legacy vibrationActuator with 'pulse' method
         if ('pulse' in actuator && typeof (actuator as any).pulse === 'function') {
-          (actuator as any).pulse(weakMagnitude, duration);
+          (actuator as any).pulse(weak, dur);
           return true;
         }
       } catch {
